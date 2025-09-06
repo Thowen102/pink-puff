@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Set up MSYS2 on the Windows runner (no Docker, no apt)
+      # 1) MSYS2 baseline (no Docker, no apt issues)
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MSYS
@@ -20,23 +20,35 @@ jobs:
             tar
             unzip
             make
+            findutils
+            coreutils
 
-      # Add devkitPro pacman & pvsneslib inside MSYS2
+      # 2) Install devkitPro pacman + pvsneslib
       - name: Bootstrap devkitPro + pvsneslib
         shell: msys2 {0}
         run: |
           set -eux
           wget -q https://apt.devkitpro.org/install-devkitpro-pacman -O install-dkp.sh
           bash install-dkp.sh
+          # Ensure dkp-pacman is on PATH for this job
+          if [ -d /opt/devkitpro/pacman/bin ]; then
+            export PATH="/opt/devkitpro/pacman/bin:$PATH"
+          elif [ -d /c/devkitPro/pacman/bin ]; then
+            export PATH="/c/devkitPro/pacman/bin:$PATH"
+          fi
           dkp-pacman -Syyu --noconfirm || true
           dkp-pacman -S --needed --noconfirm pvsneslib
+          # Show where DEVKITPRO will be loaded from
+          test -f /etc/profile.d/devkitpro.sh && sed -n '1,120p' /etc/profile.d/devkitpro.sh || true
 
-      # Find your game folder even if it’s nested, or unzip it if you uploaded a zip
+      # 3) Locate your sources (handles nested folder or zip)
       - name: Locate/prepare sources
         id: locate
         shell: msys2 {0}
         run: |
           set -eux
+          echo "== repo root =="; ls -la
+          echo "== first 3 levels =="; find . -maxdepth 3 -type f | sed 's#^\./##' | sort
           SRC=""
           if [ -d "snes-pink-puff-adv" ]; then
             SRC="snes-pink-puff-adv"
@@ -55,17 +67,21 @@ jobs:
           test -f "$SRC/Makefile" || { echo "::error::Missing Makefile in $SRC"; exit 3; }
           echo "SRC=$SRC" >> "$GITHUB_ENV"
 
-      # Build with make inside MSYS2
+      # 4) Build (source devkitpro env so $DEVKITPRO is set)
       - name: Build ROM
         shell: msys2 {0}
         run: |
           set -eux
+          # Load env vars (sets DEVKITPRO, PATH to toolchains, etc.)
+          source /etc/profile.d/devkitpro.sh || true
+          export DEVKITPRO="${DEVKITPRO:-/opt/devkitpro}"
+          echo "Using DEVKITPRO=$DEVKITPRO"
           cd "$SRC"
           make -j2
 
-      # Publish the .sfc file
+      # 5) Upload the .sfc
       - name: Upload ROM artifact
         uses: actions/upload-artifact@v4
         with:
           name: pink-puff-roms
-          path: '**/*.sfc'
+          path: ${{ env.SRC }}/*.sfc
