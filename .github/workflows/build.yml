@@ -6,22 +6,39 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Use GHCR (more reliable than Docker Hub) and pin a tag
-    container:
-      image: ghcr.io/devkitpro/devkitpro:2024-07-05
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install prerequisites (hardened apt with retries)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo bash -c 'apt-get update -o Acquire::Retries=5 || (sleep 5; apt-get update -o Acquire::Retries=5)'
+          sudo apt-get install -y --no-install-recommends ca-certificates wget tar gnupg
+
+      - name: Bootstrap devkitPro pacman
+        run: |
+          wget -q https://apt.devkitpro.org/install-devkitpro-pacman -O install-dkp.sh
+          sudo bash install-dkp.sh
+          echo "/opt/devkitpro/pacman/bin" >> $GITHUB_PATH
+
+      - name: Cache devkitPro packages
+        uses: actions/cache@v4
+        with:
+          path: /opt/devkitpro/pacman/var/cache/pacman/pkg
+          key: dkp-${{ runner.os }}-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: dkp-${{ runner.os }}-
+
       - name: Install pvsneslib
         run: |
-          dkp-pacman -Syu --noconfirm || true
-          dkp-pacman -S --needed --noconfirm pvsneslib
+          sudo dkp-pacman -Syu --noconfirm || true
+          sudo dkp-pacman -S --needed --noconfirm pvsneslib
 
       - name: Build advanced project
         run: |
           cd snes-pink-puff-adv
-          make -j
+          make -j$(nproc)
 
       - name: Upload ROM artifact
         uses: actions/upload-artifact@v4
