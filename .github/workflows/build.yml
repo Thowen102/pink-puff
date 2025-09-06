@@ -1,87 +1,37 @@
 name: Build SNES ROM
+
 on:
   push:
-  workflow_dispatch:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      # 1) MSYS2 baseline (no Docker, no apt issues)
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: MSYS
-          update: true
-          install: >-
-            wget
-            tar
-            unzip
-            make
-            findutils
-            coreutils
+      - name: Set up devkitPro
+        uses: devkitPro/actions/setup-devkitpro@v1
 
-      # 2) Install devkitPro pacman + pvsneslib
-      - name: Bootstrap devkitPro + pvsneslib
-        shell: msys2 {0}
-        run: |
-          set -eux
-          wget -q https://apt.devkitpro.org/install-devkitpro-pacman -O install-dkp.sh
-          bash install-dkp.sh
-          # Ensure dkp-pacman is on PATH for this job
-          if [ -d /opt/devkitpro/pacman/bin ]; then
-            export PATH="/opt/devkitpro/pacman/bin:$PATH"
-          elif [ -d /c/devkitPro/pacman/bin ]; then
-            export PATH="/c/devkitPro/pacman/bin:$PATH"
-          fi
-          dkp-pacman -Syyu --noconfirm || true
-          dkp-pacman -S --needed --noconfirm pvsneslib
-          # Show where DEVKITPRO will be loaded from
-          test -f /etc/profile.d/devkitpro.sh && sed -n '1,120p' /etc/profile.d/devkitpro.sh || true
+      # Add any required environment variables here
+      # - name: Set environment variables
+      #   run: |
+      #     echo "EXAMPLE_VAR=value" >> $GITHUB_ENV
 
-      # 3) Locate your sources (handles nested folder or zip)
-      - name: Locate/prepare sources
-        id: locate
-        shell: msys2 {0}
-        run: |
-          set -eux
-          echo "== repo root =="; ls -la
-          echo "== first 3 levels =="; find . -maxdepth 3 -type f | sed 's#^\./##' | sort
-          SRC=""
-          if [ -d "snes-pink-puff-adv" ]; then
-            SRC="snes-pink-puff-adv"
-          elif [ -d "pink-puff-snes-repo/snes-pink-puff-adv" ]; then
-            SRC="pink-puff-snes-repo/snes-pink-puff-adv"
-          elif [ -f "snes-pink-puff-adv.zip" ]; then
-            unzip -o snes-pink-puff-adv.zip
-            SRC="snes-pink-puff-adv"
-          elif [ -f "pink-puff-snes-repo/snes-pink-puff-adv.zip" ]; then
-            unzip -o pink-puff-snes-repo/snes-pink-puff-adv.zip -d .
-            SRC="snes-pink-puff-adv"
-          else
-            echo "::error::Could not find snes-pink-puff-adv (folder or zip) at repo root or inside pink-puff-snes-repo/"
-            exit 2
-          fi
-          test -f "$SRC/Makefile" || { echo "::error::Missing Makefile in $SRC"; exit 3; }
-          echo "SRC=$SRC" >> "$GITHUB_ENV"
-
-      # 4) Build (source devkitpro env so $DEVKITPRO is set)
       - name: Build ROM
-        shell: msys2 {0}
         run: |
-          set -eux
-          # Load env vars (sets DEVKITPRO, PATH to toolchains, etc.)
-          source /etc/profile.d/devkitpro.sh || true
-          export DEVKITPRO="${DEVKITPRO:-/opt/devkitpro}"
-          echo "Using DEVKITPRO=$DEVKITPRO"
-          cd "$SRC"
-          make -j2
+          # Replace this with your actual build command
+          make
 
-      # 5) Upload the .sfc
-      - name: Upload ROM artifact
-        uses: actions/upload-artifact@v4
+      # Optionally, upload the built ROM as an artifact
+      - name: Upload ROM
+        uses: actions/upload-artifact@v3
         with:
-          name: pink-puff-roms
-          path: ${{ env.SRC }}/*.sfc
+          name: snes-rom
+          path: path/to/your/output.rom
