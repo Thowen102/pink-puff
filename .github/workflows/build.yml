@@ -2,36 +2,29 @@ name: Build SNES ROM
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Set up devkitPro
-        uses: devkitPro/actions/setup-devkitpro@v1
+    - name: Install snes-sdk
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y snes-sdk
 
-      # Add any required environment variables here
-      # - name: Set environment variables
-      #   run: |
-      #     echo "EXAMPLE_VAR=value" >> $GITHUB_ENV
+    - name: Build SNES ROM
+      run: |
+        # Replace 'main.smc' with your actual source file and build command
+        snescc -o output.snes main.c
 
-      - name: Build ROM
-        run: |
-          # Replace this with your actual build command
-          make
-
-      # Optionally, upload the built ROM as an artifact
-      - name: Upload ROM
-        uses: actions/upload-artifact@v4
-        with:
-          name: snes-rom
-          path: path/to/your/output.rom
+    - name: Upload ROM artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: snes-rom
+        path: output.snes
