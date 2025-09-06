@@ -5,21 +5,36 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      # Show what's actually in the repo (helps if it fails)
-      - name: Show repo tree
-        run: |
-          echo "== repo root ==" && ls -la
-          echo "== first 3 levels ==" && find . -maxdepth 3 -type f | sed 's#^\./##' | sort
+      # Set up MSYS2 on the Windows runner (no Docker, no apt)
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          update: true
+          install: >-
+            wget
+            tar
+            unzip
+            make
 
-      # Accept either a top-level snes-pink-puff-adv/ or the same folder inside pink-puff-snes-repo/
-      # or a zip with that name
+      # Add devkitPro pacman & pvsneslib inside MSYS2
+      - name: Bootstrap devkitPro + pvsneslib
+        shell: msys2 {0}
+        run: |
+          set -eux
+          wget -q https://apt.devkitpro.org/install-devkitpro-pacman -O install-dkp.sh
+          bash install-dkp.sh
+          dkp-pacman -Syyu --noconfirm || true
+          dkp-pacman -S --needed --noconfirm pvsneslib
+
+      # Find your game folder even if it’s nested, or unzip it if you uploaded a zip
       - name: Locate/prepare sources
         id: locate
+        shell: msys2 {0}
         run: |
           set -eux
           SRC=""
@@ -40,47 +55,17 @@ jobs:
           test -f "$SRC/Makefile" || { echo "::error::Missing Makefile in $SRC"; exit 3; }
           echo "SRC=$SRC" >> "$GITHUB_ENV"
 
-      # Robust APT with retries (avoids exit code 100)
-      - name: Install prerequisites (with retries)
-        env: { DEBIAN_FRONTEND: noninteractive }
-        run: |
-          set -eux
-          sudo bash -c 'apt-get update -o Acquire::Retries=5 || (sleep 5; apt-get update -o Acquire::Retries=5)'
-          sudo apt-get install -y --no-install-recommends ca-certificates wget tar gnupg unzip
-
-      # Add devkitPro pacman on Ubuntu (no Docker needed)
-      - name: Bootstrap devkitPro pacman
-        run: |
-          set -eux
-          wget -q https://apt.devkitpro.org/install-devkitpro-pacman -O install-dkp.sh
-          sudo bash install-dkp.sh
-          echo "/opt/devkitpro/pacman/bin" >> "$GITHUB_PATH"
-
-      # Cache DKP packages so re-runs are fast
-      - name: Cache devkitPro packages
-        uses: actions/cache@v4
-        with:
-          path: /opt/devkitpro/pacman/var/cache/pacman/pkg
-          key: dkp-${{ runner.os }}-${{ hashFiles('.github/workflows/build.yml') }}
-          restore-keys: dkp-${{ runner.os }}-
-
-      # Install pvsneslib (retry once if the mirror hiccups)
-      - name: Install pvsneslib
-        run: |
-          set -eux
-          sudo dkp-pacman -Syyu --noconfirm || true
-          sudo dkp-pacman -S --needed --noconfirm pvsneslib || (sleep 5; sudo dkp-pacman -S --needed --noconfirm pvsneslib)
-
-      # Build the ROM
-      - name: Build
+      # Build with make inside MSYS2
+      - name: Build ROM
+        shell: msys2 {0}
         run: |
           set -eux
           cd "$SRC"
-          make -j"$(nproc)"
+          make -j2
 
-      # Publish the .sfc
+      # Publish the .sfc file
       - name: Upload ROM artifact
         uses: actions/upload-artifact@v4
         with:
           name: pink-puff-roms
-          path: ${{ env.SRC }}/*.sfc
+          path: '**/*.sfc'
