@@ -1,0 +1,28 @@
+name: Build SNES ROM
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitpro:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pvsneslib
+        run: |
+          dkp-pacman -Syu --noconfirm || true
+          dkp-pacman -S --needed --noconfirm pvsneslib
+
+      - name: Build advanced project
+        run: |
+          cd snes-pink-puff-adv
+          make -j
+
+      - name: Upload ROM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pink-puff-roms
+          path: snes-pink-puff-adv/*.sfc
