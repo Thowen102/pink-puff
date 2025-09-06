@@ -6,20 +6,37 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: devkitpro/devkitpro:latest
+
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget tar gnupg
+
+      - name: Bootstrap devkitPro pacman (adds dkp-pacman)
+        run: |
+          wget -q https://apt.devkitpro.org/install-devkitpro-pacman -O install-dkp.sh
+          sudo bash install-dkp.sh
+          echo "/opt/devkitpro/pacman/bin" >> $GITHUB_PATH
+
+      - name: Cache devkitPro packages (speeds up later runs)
+        uses: actions/cache@v4
+        with:
+          path: /opt/devkitpro/pacman/var/cache/pacman/pkg
+          key: dkp-${{ runner.os }}-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: dkp-${{ runner.os }}-
+
       - name: Install pvsneslib
         run: |
-          dkp-pacman -Syu --noconfirm || true
-          dkp-pacman -S --needed --noconfirm pvsneslib
+          sudo dkp-pacman -Syu --noconfirm
+          sudo dkp-pacman -S --needed --noconfirm pvsneslib
 
       - name: Build advanced project
         run: |
           cd snes-pink-puff-adv
-          make -j
+          make -j$(nproc)
 
       - name: Upload ROM artifact
         uses: actions/upload-artifact@v4
