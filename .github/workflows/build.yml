@@ -1,34 +1,47 @@
 name: Build SNES ROM
-
 on:
   push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/devkitpro/devkitpro:2024-07-05  # GHCR, pinned tag
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install devkitPro SNES toolchain
+      # Accept either a top-level snes-pink-puff-adv/ or the same folder under pink-puff-snes-repo/
+      - name: Locate sources
+        id: locate
         run: |
-          sudo apt-get update
-          sudo apt-get install -y curl
-          curl https://apt.devkitpro.org/install-devkitpro-pacman | bash
-          sudo dkp-pacman -Syu
-          sudo dkp-pacman -S snes-dev
+          set -eux
+          if [ -d "snes-pink-puff-adv" ]; then
+            SRC="snes-pink-puff-adv"
+          elif [ -d "pink-puff-snes-repo/snes-pink-puff-adv" ]; then
+            SRC="pink-puff-snes-repo/snes-pink-puff-adv"
+          else
+            echo "::error::Missing snes-pink-puff-adv folder (either at repo root or inside pink-puff-snes-repo/)"
+            exit 2
+          fi
+          test -f "$SRC/Makefile" || { echo "::error::$SRC/Makefile not found"; exit 3; }
+          echo "SRC=$SRC" >> "$GITHUB_ENV"
 
-      - name: Build SNES ROM
+      - name: Install pvsneslib (via devkitPro pacman)
         run: |
-          # Replace with your actual build command if different
-          # Example: If you use Makefile, replace with 'make'
-          snescc -o output.snes main.c
+          set -eux
+          dkp-pacman -Syyu --noconfirm || true
+          dkp-pacman -S --needed --noconfirm pvsneslib || (sleep 5; dkp-pacman -S --needed --noconfirm pvsneslib)
+
+      - name: Build ROM
+        run: |
+          set -eux
+          cd "$SRC"
+          make -j
 
       - name: Upload ROM artifact
         uses: actions/upload-artifact@v4
         with:
-          name: snes-rom
-          path: output.snes
+          name: pink-puff-roms
+          path: ${{ env.SRC }}/*.sfc
