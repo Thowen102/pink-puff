@@ -6,18 +6,22 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/devkitpro/devkitpro:2024-07-05
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Locate sources (handles nested or zipped)
+      # Show what's actually in the repo (helps if it fails)
+      - name: Show repo tree
+        run: |
+          echo "== repo root ==" && ls -la
+          echo "== first 3 levels ==" && find . -maxdepth 3 -type f | sed 's#^\./##' | sort
+
+      # Accept either a top-level snes-pink-puff-adv/ or the same folder inside pink-puff-snes-repo/
+      # or a zip with that name
+      - name: Locate/prepare sources
         id: locate
         run: |
           set -eux
-          echo "== repo tree =="
-          find . -maxdepth 3 -print | sed 's#^\./##'
           SRC=""
           if [ -d "snes-pink-puff-adv" ]; then
             SRC="snes-pink-puff-adv"
@@ -36,19 +40,46 @@ jobs:
           test -f "$SRC/Makefile" || { echo "::error::Missing Makefile in $SRC"; exit 3; }
           echo "SRC=$SRC" >> "$GITHUB_ENV"
 
-      - name: Install pvsneslib (with retry)
+      # Robust APT with retries (avoids exit code 100)
+      - name: Install prerequisites (with retries)
+        env: { DEBIAN_FRONTEND: noninteractive }
         run: |
           set -eux
-          dkp-pacman -Syyu --noconfirm || true
-          dkp-pacman -S --needed --noconfirm pvsneslib || (sleep 5; dkp-pacman -S --needed --noconfirm pvsneslib)
+          sudo bash -c 'apt-get update -o Acquire::Retries=5 || (sleep 5; apt-get update -o Acquire::Retries=5)'
+          sudo apt-get install -y --no-install-recommends ca-certificates wget tar gnupg unzip
 
+      # Add devkitPro pacman on Ubuntu (no Docker needed)
+      - name: Bootstrap devkitPro pacman
+        run: |
+          set -eux
+          wget -q https://apt.devkitpro.org/install-devkitpro-pacman -O install-dkp.sh
+          sudo bash install-dkp.sh
+          echo "/opt/devkitpro/pacman/bin" >> "$GITHUB_PATH"
+
+      # Cache DKP packages so re-runs are fast
+      - name: Cache devkitPro packages
+        uses: actions/cache@v4
+        with:
+          path: /opt/devkitpro/pacman/var/cache/pacman/pkg
+          key: dkp-${{ runner.os }}-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: dkp-${{ runner.os }}-
+
+      # Install pvsneslib (retry once if the mirror hiccups)
+      - name: Install pvsneslib
+        run: |
+          set -eux
+          sudo dkp-pacman -Syyu --noconfirm || true
+          sudo dkp-pacman -S --needed --noconfirm pvsneslib || (sleep 5; sudo dkp-pacman -S --needed --noconfirm pvsneslib)
+
+      # Build the ROM
       - name: Build
         run: |
           set -eux
           cd "$SRC"
-          make -j
+          make -j"$(nproc)"
 
-      - name: Upload ROM
+      # Publish the .sfc
+      - name: Upload ROM artifact
         uses: actions/upload-artifact@v4
         with:
           name: pink-puff-roms
