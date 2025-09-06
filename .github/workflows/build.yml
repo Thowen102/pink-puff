@@ -6,42 +6,50 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/devkitpro/devkitpro:2024-07-05
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install prerequisites (hardened apt with retries)
-        env:
-          DEBIAN_FRONTEND: noninteractive
+      - name: Locate sources (handles nested or zipped)
+        id: locate
         run: |
-          sudo bash -c 'apt-get update -o Acquire::Retries=5 || (sleep 5; apt-get update -o Acquire::Retries=5)'
-          sudo apt-get install -y --no-install-recommends ca-certificates wget tar gnupg
+          set -eux
+          echo "== repo tree =="
+          find . -maxdepth 3 -print | sed 's#^\./##'
+          SRC=""
+          if [ -d "snes-pink-puff-adv" ]; then
+            SRC="snes-pink-puff-adv"
+          elif [ -d "pink-puff-snes-repo/snes-pink-puff-adv" ]; then
+            SRC="pink-puff-snes-repo/snes-pink-puff-adv"
+          elif [ -f "snes-pink-puff-adv.zip" ]; then
+            unzip -o snes-pink-puff-adv.zip
+            SRC="snes-pink-puff-adv"
+          elif [ -f "pink-puff-snes-repo/snes-pink-puff-adv.zip" ]; then
+            unzip -o pink-puff-snes-repo/snes-pink-puff-adv.zip -d .
+            SRC="snes-pink-puff-adv"
+          else
+            echo "::error::Could not find snes-pink-puff-adv (folder or zip) at repo root or inside pink-puff-snes-repo/"
+            exit 2
+          fi
+          test -f "$SRC/Makefile" || { echo "::error::Missing Makefile in $SRC"; exit 3; }
+          echo "SRC=$SRC" >> "$GITHUB_ENV"
 
-      - name: Bootstrap devkitPro pacman
+      - name: Install pvsneslib (with retry)
         run: |
-          wget -q https://apt.devkitpro.org/install-devkitpro-pacman -O install-dkp.sh
-          sudo bash install-dkp.sh
-          echo "/opt/devkitpro/pacman/bin" >> $GITHUB_PATH
+          set -eux
+          dkp-pacman -Syyu --noconfirm || true
+          dkp-pacman -S --needed --noconfirm pvsneslib || (sleep 5; dkp-pacman -S --needed --noconfirm pvsneslib)
 
-      - name: Cache devkitPro packages
-        uses: actions/cache@v4
-        with:
-          path: /opt/devkitpro/pacman/var/cache/pacman/pkg
-          key: dkp-${{ runner.os }}-${{ hashFiles('.github/workflows/build.yml') }}
-          restore-keys: dkp-${{ runner.os }}-
-
-      - name: Install pvsneslib
+      - name: Build
         run: |
-          sudo dkp-pacman -Syu --noconfirm || true
-          sudo dkp-pacman -S --needed --noconfirm pvsneslib
+          set -eux
+          cd "$SRC"
+          make -j
 
-      - name: Build advanced project
-        run: |
-          cd snes-pink-puff-adv
-          make -j$(nproc)
-
-      - name: Upload ROM artifact
+      - name: Upload ROM
         uses: actions/upload-artifact@v4
         with:
           name: pink-puff-roms
-          path: snes-pink-puff-adv/*.sfc
+          path: ${{ env.SRC }}/*.sfc
