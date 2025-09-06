@@ -10,21 +10,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install snes-sdk
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y snes-sdk
+      - name: Install devkitPro SNES toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl
+          curl https://apt.devkitpro.org/install-devkitpro-pacman | bash
+          sudo dkp-pacman -Syu
+          sudo dkp-pacman -S snes-dev
 
-    - name: Build SNES ROM
-      run: |
-        # Replace 'main.smc' with your actual source file and build command
-        snescc -o output.snes main.c
+      - name: Build SNES ROM
+        run: |
+          # Replace with your actual build command if different
+          # Example: If you use Makefile, replace with 'make'
+          snescc -o output.snes main.c
 
-    - name: Upload ROM artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: snes-rom
-        path: output.snes
+      - name: Upload ROM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: snes-rom
+          path: output.snes
