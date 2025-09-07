@@ -1,73 +1,50 @@
 name: Build SNES ROM
+
 on:
   push:
-  workflow_dispatch:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
-      - name: Show repo tree (debug)
-        run: |
-          echo "== repo root ==" && ls -la
-          echo "== first 3 levels ==" && find . -maxdepth 3 -type f | sed 's#^\./##' | sort
+    - name: Check for snes-pink-puff-adv folder
+      run: |
+        if [ -d "snes-pink-puff-adv" ]; then
+          SRC="snes-pink-puff-adv"
+        elif [ -d "pink-puff-snes-repo/snes-pink-puff-adv" ]; then
+          SRC="pink-puff-snes-repo/snes-pink-puff-adv"
+        else
+          echo "::error::Missing snes-pink-puff-adv folder (root or pink-puff-snes-repo/)"
+          exit 2
+        fi
+        echo "SRC=$SRC" >> $GITHUB_ENV
 
-      - name: Locate/prepare sources (handles nested folder)
-        run: |
-          set -eux
-          if [ -d "snes-pink-puff-adv" ]; then
-            SRC="snes-pink-puff-adv"
-          elif [ -d "pink-puff-snes-repo/snes-pink-puff-adv" ]; then
-            SRC="pink-puff-snes-repo/snes-pink-puff-adv"
-          else
-            echo "::error::Missing snes-pink-puff-adv folder (root or pink-puff-snes-repo/)"
-            exit 2
-          fi
-          test -f "$SRC/Makefile" || { echo "::error::$SRC/Makefile not found"; exit 3; }
-          echo "SRC=$SRC" >> $GITHUB_ENV
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git make
 
-      - name: Install prerequisites (robust APT)
-        env: { DEBIAN_FRONTEND: noninteractive }
-        run: |
-          set -eux
-          for i in 1 2 3; do
-            sudo rm -rf /var/lib/apt/lists/* || true
-            if sudo apt-get update -o Acquire::Retries=5; then break; fi
-            sleep 5
-          done
-          sudo apt-get install -y --no-install-recommends ca-certificates wget tar gnupg unzip
+    - name: Install devkitPro and pvsneslib manually
+      run: |
+        # Install devkitPro (replace with latest instructions if needed)
+        wget https://apt.devkitpro.org/install-devkitpro-pacman.sh
+        chmod +x install-devkitpro-pacman.sh
+        sudo ./install-devkitpro-pacman.sh
+        # Install pvsneslib from source
+        git clone https://github.com/alekmaul/pvsneslib.git
+        cd pvsneslib
+        make
+        sudo make install
+        cd ..
 
-      - name: Bootstrap devkitPro pacman
-        run: |
-          set -eux
-          wget -q https://apt.devkitpro.org/install-devkitpro-pacman -O install-dkp.sh
-          sudo bash install-dkp.sh
-          echo "/opt/devkitpro/pacman/bin" >> $GITHUB_PATH
-
-      - name: Cache devkitPro packages
-        uses: actions/cache@v4
-        with:
-          path: /opt/devkitpro/pacman/var/cache/pacman/pkg
-          key: dkp-${{ runner.os }}-${{ hashFiles('.github/workflows/build.yml') }}
-          restore-keys: dkp-${{ runner.os }}-
-
-      - name: Install pvsneslib (retry once)
-        run: |
-          set -eux
-          sudo dkp-pacman -Syyu --noconfirm || true
-          sudo dkp-pacman -S --needed --noconfirm pvsneslib || (sleep 5; sudo dkp-pacman -S --needed --noconfirm pvsneslib)
-
-      - name: Build ROM
-        run: |
-          set -eux
-          cd "$SRC"
-          make -j"$(nproc)"
-
-      - name: Upload ROM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pink-puff-roms
-          path: ${{ env.SRC }}/*.sfc
+    - name: Build project
+      run: |
+        test -f "$SRC/Makefile" || { echo "::error::$SRC/Makefile not found"; exit 3; }
+        make -C "$SRC"
