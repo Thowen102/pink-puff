@@ -5,10 +5,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
     container:
-         image: ghcr.io/devkitpro/devkitpro:latest  # GHCR, pinned tag
-
+      image: ghcr.io/devkitpro/devkitpro:20230912  # Replace with a valid tag
     steps:
       - uses: actions/checkout@v4
 
